@@ -29,9 +29,11 @@ opa-sidecar server -addr localhost:9090 -policy ./policies
 
 ## Example Execution
 
-```sh
+```bash
 plan_json=$(terraform${ATLANTIS_TERRAFORM_VERSION} show -json ${PLANFILE})
 vcs="\"owner\": \"${BASE_REPO_OWNER}\", \"name\": \"${BASE_REPO_NAME}\", \"pull_num\": \"${PULL_NUM}\""
-data="{\"vcs\": ${vcs}, \"plan\": ${plan}}"
+
+data="{\"vcs\": ${vcs}, \"plan\": ${plan_json}}"
+
 curl -sS -X POST -d "${data}" -H "Content-type: application/json" http://localhost:9090/check
 ```
