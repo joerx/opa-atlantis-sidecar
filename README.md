@@ -2,14 +2,18 @@
 
 Small OPA integration to be used with [Atlantis](https://www.runatlantis.io) as a sidecar or as part of other Terraform CI pipelines. Exposes a HTTP endpoint that validates a JSON plan and updates a VCS pull request status depending on the result.
 
+_Note: this is only PoC at this stage - nothing really works and it's terrible code style._
+
+![Demo](./docs/media/demo.png)
+
 ## Request Format
 
 ```json
 {
   "vcs": {
-    "owner": "${BASE_REPO_OWNER}",
-    "name": "${BASE_REPO_NAME}",
-    "pull_num": "${PULL_NUM}"
+    "owner": "BASE_REPO_OWNER",
+    "name": "BASE_REPO_NAME",
+    "pull_num": "PULL_NUM"
   },
   "plan": {
     "...": "terraform plan output"
