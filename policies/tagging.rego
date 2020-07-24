@@ -1,4 +1,4 @@
-package example.terraform.tagging
+package terraform.tagging
 
 default pass = false
 
@@ -6,7 +6,7 @@ pass = true {
     count(violations) == 0
 }
 
-violations[addr] = msg {
+violations[{"addr": addr, "msg": msg}] {
     some addr
     tags := missing_tags[addr]
     count(tags) > 0
@@ -23,7 +23,7 @@ taggable := [
 
 change_to_taggable[r] {
     r := input.resource_changes[_]
-    r.change.actions[_] == data.example.terraform.update_actions[_]
+    r.change.actions[_] == data.terraform.update_actions[_]
     r.type == taggable[_]
 }
 

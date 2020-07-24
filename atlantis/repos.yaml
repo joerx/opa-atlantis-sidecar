@@ -1,0 +1,18 @@
+repos:
+  - id: /.*/
+    apply_requirements: [approved, mergeable]
+    allowed_overrides: [workflow]
+    allow_custom_workflows: false
+    workflow: default-opa
+
+workflows:
+  default-opa:
+    plan:
+      steps:
+        - init
+        - plan
+        - run: /home/atlantis/invoke-opa.sh
+    apply:
+      steps:
+        - run: echo "Going to do a plan"
+        - apply

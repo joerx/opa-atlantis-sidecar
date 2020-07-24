@@ -9,20 +9,20 @@ import (
 	"net/http"
 )
 
-func parseInput(r io.ReadCloser) (interface{}, error) {
+func parseInput(r io.ReadCloser, out interface{}) error {
 	defer r.Close()
 
 	bs, err := ioutil.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var input interface{}
-	if err := json.Unmarshal(bs, &input); err != nil {
-		return nil, err
+	// var input interface{}
+	if err := json.Unmarshal(bs, &out); err != nil {
+		return err
 	}
 
-	return input, nil
+	return nil
 }
 
 func respond(w http.ResponseWriter, code int, payload interface{}) {
@@ -34,6 +34,10 @@ func respond(w http.ResponseWriter, code int, payload interface{}) {
 
 func respondOK(w http.ResponseWriter, payload interface{}) {
 	respond(w, http.StatusOK, payload)
+}
+
+func respondAccepted(w http.ResponseWriter, payload interface{}) {
+	respond(w, http.StatusAccepted, payload)
 }
 
 func respondInternalServerError(w http.ResponseWriter, err error) {

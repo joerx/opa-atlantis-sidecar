@@ -1,0 +1,42 @@
+version: "3.7"
+
+services:
+
+  atlantis:
+    image: tw-atlantis:latest
+    environment: 
+      ATLANTIS_GH_TOKEN: ${GITHUB_TOKEN}
+      ATLANTIS_GH_USER: ${ATLANTIS_GH_USER}
+      ATLANTIS_REPO_WHITELIST: github.com/transferwise/terraform-sandbox
+      ATLANTIS_GH_WEBHOOK_SECRET: ${ATLANTIS_GH_WEBHOOK_SECRET}
+      ATLANTIS_LOG_LEVEL: debug
+      ATLANTIS_REPO_CONFIG: /home/atlantis/repos.yaml
+      ATLANTIS_DATA_DIR: /atlantis-data
+      OPA_URL: opa-sidecar:5151
+    ports: 
+      - "4141:4141"
+    networks:
+      - atlantis
+    volumes:
+      - "./atlantis/repos.yaml:/home/atlantis/repos.yaml"
+      - "./atlantis/invoke-opa.sh:/home/atlantis/invoke-opa.sh"
+      - "${HOME}/.aws/credentials:/home/atlantis/.aws/credentials"
+      - "atlantis-data:/atlantis-data"
+
+  opa-sidecar:
+    build: .
+    environment: 
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      POLICY_DIR: /opt/opa/policies
+      ADDRESS: ":5151"
+    networks:
+      - atlantis
+    volumes:
+      - "./policies:/opt/opa/policies"
+      - "./example.json:/opt/opa/example.json"
+
+networks:
+  atlantis:
+
+volumes:
+  atlantis-data:

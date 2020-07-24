@@ -23,16 +23,17 @@ import (
 	"github.com/open-policy-agent/opa/rego"
 )
 
-const query = "pass = data.terraform.tagging.pass; violations = data.terraform.tagging.violations"
-const policy = "./policies"
-const addr = "localhost:8080"
-
+const query = "pass = data.terraform.pass; violations = data.terraform.violations"
 const prRepo = "opa-terraform-example"
 const prNo = 1
 const repoOwner = "joerx"
 
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+type messageResponse struct {
+	Message string `json:"message"`
 }
 
 type regoHandler struct {
@@ -46,9 +47,22 @@ func main() {
 		log.Fatal("Missing GITHUB_TOKEN")
 	}
 
+	var address string
+	address, ok = os.LookupEnv("ADDRESS")
+	if !ok {
+		address = "localhost:5151"
+	}
+
+	var policyDir string
+	policyDir, ok = os.LookupEnv("POLICY_DIR")
+	if !ok {
+		policyDir = "./policies"
+	}
+
+	log.Printf("Reading policies from %s", policyDir)
 	rg := rego.New(
 		rego.Query(query),
-		rego.Load([]string{policy}, nil),
+		rego.Load([]string{policyDir}, nil),
 	)
 
 	gh := newGithubClient(githubToken)
@@ -56,51 +70,74 @@ func main() {
 
 	router := http.NewServeMux()
 	srv := http.Server{
-		Addr:    addr,
+		Addr:    address,
 		Handler: router,
 	}
 
 	router.HandleFunc("/", rh.handleRequest)
 
-	log.Printf("Starting server on %s", addr)
+	log.Printf("Starting server on %s", address)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("listen %s: %s", addr, err)
+		log.Fatalf("listen %s: %s", address, err)
 	}
+}
+
+type prInfo struct {
+	Name    string `json:"name"`
+	Owner   string `json:"owner"`
+	PullNum int    `json:"pull_num"`
+}
+
+type tfPlanRequest struct {
+	PullRequest *prInfo `json:"pull_request"`
+	Plan        interface{}
 }
 
 func (rh *regoHandler) handleRequest(w http.ResponseWriter, req *http.Request) {
 	log.Printf("%s %s - %s", req.Method, req.RemoteAddr, req.URL.Path)
 
-	input, err := parseInput(req.Body)
-	if err != nil {
+	var in tfPlanRequest
+	if err := parseInput(req.Body, &in); err != nil {
+		log.Printf("error parsing request body: %v", err)
 		respondInternalServerError(w, err)
 		return
 	}
 
-	rs, err := rh.checkForViolations(input)
-	if err != nil {
-		respondInternalServerError(w, err)
-		return
-	}
+	respondAccepted(w, &messageResponse{Message: "accepted"})
 
-	respondOK(w, rs)
+	// we don't return the results, instead we report them back to the VCS provider
+	err := rh.checkForViolations(&in)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
-func (rh *regoHandler) checkForViolations(input interface{}) (interface{}, error) {
-	rs, err := rh.evalQuery(policy, query, input)
+func (rh *regoHandler) checkForViolations(input *tfPlanRequest) error {
+	log.Println("Checking for violations")
+
+	rs, err := rh.evalQuery(query, input.Plan)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if err := rh.updateGithubStatus(rs); err != nil {
-		return nil, err
+	log.Println("Check completed, result below")
+	log.Printf("%#v", rs)
+
+	if rs == nil {
+		return fmt.Errorf("OPA returned an empty result") // TODO: should raise an error on Github
 	}
 
-	return rs, err
+	if input.PullRequest != nil {
+		if err := rh.updateGithubStatus(rs, input.PullRequest); err != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
-func (rh *regoHandler) evalQuery(policy, q string, input interface{}) (rego.ResultSet, error) {
+func (rh *regoHandler) evalQuery(q string, input interface{}) (rego.ResultSet, error) {
 	ctx := context.Background()
 
 	query, err := rh.rego.PrepareForEval(ctx)
@@ -113,16 +150,16 @@ func (rh *regoHandler) evalQuery(policy, q string, input interface{}) (rego.Resu
 
 // Github functions
 
-func makeIssueComment(violations map[string]interface{}) *github.IssueComment {
+func makeIssueComment(violations []interface{}) *github.IssueComment {
 	lines := []string{
 		"Some policy checks failed, please fix them and then re-run `atlantis plan`:",
 		"",
 		"```txt",
 	}
 
-	for addr, elem := range violations {
-		msg := elem.(string)
-		lines = append(lines, fmt.Sprintf("%s: %s", addr, msg))
+	for _, elem := range violations {
+		v := elem.(map[string]interface{})
+		lines = append(lines, fmt.Sprintf("%v: %v", v["addr"], v["msg"]))
 	}
 
 	lines = append(lines, "```")
@@ -132,9 +169,9 @@ func makeIssueComment(violations map[string]interface{}) *github.IssueComment {
 	}
 }
 
-func makeRepoStatus(pass bool, violations map[string]interface{}) *github.RepoStatus {
+func makeRepoStatus(pass bool) *github.RepoStatus {
 	state := "failure"
-	description := "Policy checks failed, please see issue comment for detail"
+	description := "There are some resource policy violations. Please fix them and re-run `atlantis-plan`."
 	context := "opa/policy-check"
 
 	if pass {
@@ -149,15 +186,15 @@ func makeRepoStatus(pass bool, violations map[string]interface{}) *github.RepoSt
 	}
 }
 
-func (rh *regoHandler) updateGithubStatus(rs rego.ResultSet) error {
+func (rh *regoHandler) updateGithubStatus(rs rego.ResultSet, prInfo *prInfo) error {
 	pass := rs[0].Bindings["pass"].(bool)
-	violations := rs[0].Bindings["violations"].(map[string]interface{})
+	violations := rs[0].Bindings["violations"].([]interface{})
 
 	log.Printf("Pass: %t (%d violations)\n", pass, len(violations))
 
 	ctx := context.Background()
 
-	pr, _, err := rh.gh.PullRequests.Get(ctx, repoOwner, prRepo, prNo)
+	pr, _, err := rh.gh.PullRequests.Get(ctx, prInfo.Owner, prInfo.Name, prInfo.PullNum)
 	if err != nil {
 		return fmt.Errorf("error getting PR info: %v", err)
 	}
@@ -166,15 +203,15 @@ func (rh *regoHandler) updateGithubStatus(rs rego.ResultSet) error {
 
 	if !pass {
 		comment := makeIssueComment(violations)
-		_, _, err := rh.gh.Issues.CreateComment(ctx, repoOwner, prRepo, prNo, comment)
+		_, _, err := rh.gh.Issues.CreateComment(ctx, prInfo.Owner, prInfo.Name, prInfo.PullNum, comment)
 		if err != nil {
 			log.Println(err)
 			return fmt.Errorf("error adding issue comment")
 		}
 	}
 
-	status := makeRepoStatus(pass, violations)
-	_, _, err = rh.gh.Repositories.CreateStatus(ctx, repoOwner, prRepo, *ref, status)
+	status := makeRepoStatus(pass)
+	_, _, err = rh.gh.Repositories.CreateStatus(ctx, prInfo.Owner, prInfo.Name, *ref, status)
 	if err != nil {
 		log.Println(err)
 		return fmt.Errorf("error updating PR status")
