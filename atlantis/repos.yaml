@@ -14,5 +14,14 @@ workflows:
         - run: /home/atlantis/invoke-opa.sh
     apply:
       steps:
-        - run: echo "Going to do a plan"
+        - apply
+
+  dbas:
+    plan:
+      steps:
+        - init
+        - plan
+        - run: /home/atlantis/invoke-opa.sh
+    apply:
+      steps:
         - apply

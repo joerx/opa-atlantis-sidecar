@@ -6,34 +6,9 @@ _Note: this is only PoC at this stage - nothing really works and it's terrible c
 
 ![Demo](./docs/media/demo.png)
 
-## Request Format
-
-```json
-{
-  "vcs": {
-    "owner": "BASE_REPO_OWNER",
-    "name": "BASE_REPO_NAME",
-    "pull_num": "PULL_NUM"
-  },
-  "plan": {
-    "...": "terraform plan output"
-  }
-}
-```
-
 ## Usage
 
-```sh
-opa-sidecar server -addr localhost:9090 -policy ./policies
-```
-
-## Example Execution
-
-```bash
-plan_json=$(terraform${ATLANTIS_TERRAFORM_VERSION} show -json ${PLANFILE})
-vcs="\"owner\": \"${BASE_REPO_OWNER}\", \"name\": \"${BASE_REPO_NAME}\", \"pull_num\": \"${PULL_NUM}\""
-
-data="{\"vcs\": ${vcs}, \"plan\": ${plan_json}}"
-
-curl -sS -X POST -d "${data}" -H "Content-type: application/json" http://localhost:9090/check
-```
+- Follow https://www.runatlantis.io/guide/testing-locally.html#testing-locally to set up the webhook for local testing
+- Create a copy of `.env.example` and change the values according to your setup
+- Run `docker-compose up`
+- Create a PR in a repo of your choice and see what happens
